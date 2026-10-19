@@ -27,6 +27,7 @@ import {
   Bot,
   RefreshCw,
   Check,
+  Server,
 } from 'lucide-react';
 import { FamilyMap } from './components/FamilyMap';
 import { EcoStatusBar } from './components/EcoStatusBar';
@@ -47,7 +48,14 @@ import { UniversalSignInModal } from './components/UniversalSignInModal';
 import { SettingsModal } from './components/SettingsModal';
 import { MemberDetailSheet } from './components/MemberDetailSheet';
 import { NotificationCenterDropdown } from './components/NotificationCenterDropdown';
+import { ConnectionHubModal } from './components/ConnectionHubModal';
+import { apiFetch, apiUrl, getServerUrl } from './utils/apiConfig';
 import { useAuth } from './context/AuthContext';
+import {
+  startNativeLocationWatcher,
+  clearNativeLocationWatcher,
+  isNativeApp,
+} from './utils/nativeLocation';
 import {
   CircleData,
   FamilyMember,
@@ -107,6 +115,8 @@ export default function App() {
   const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [isConnectionHubOpen, setIsConnectionHubOpen] = useState(false);
+  const [isServerConnected, setIsServerConnected] = useState(true);
   const [isUniversalAuthOpen, setIsUniversalAuthOpen] = useState(() => {
     return localStorage.getItem('orbit_onboarding_completed') !== 'true';
   });
@@ -196,8 +206,8 @@ export default function App() {
   const [historyRoute, setHistoryRoute] = useState<LocationPoint[] | null>(null);
   const [historyPlaybackPoint, setHistoryPlaybackPoint] = useState<LocationPoint[] | null>(null);
 
-  // Device GPS & Simulation (Simulation is strictly OFF by default for clean fresh start)
-  const [isRealGpsEnabled, setIsRealGpsEnabled] = useState(false);
+  // Device GPS & Simulation (Simulation is strictly OFF by default; GPS auto-enabled on native Android/iOS)
+  const [isRealGpsEnabled, setIsRealGpsEnabled] = useState(() => isNativeApp());
   const [isSimulatorActive, setIsSimulatorActive] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
 
@@ -229,12 +239,79 @@ export default function App() {
   const prevPlaceMapRef = useRef<Record<string, string | undefined>>({});
   const prevMemberCountRef = useRef<number>(0);
 
+  // Helper to bootstrap a healthy initial circle when offline or before backend is connected
+  const initFallbackCircle = useCallback(() => {
+    const myId = activeMemberId || (user ? `user-${user.uid.slice(0, 8)}` : 'member-admin');
+    const myName = user?.displayName || 'Family Admin';
+    const fallback: CircleData = {
+      circleId: circleId || 'ORBIT-FAMILY',
+      name: 'Orbit Family Circle',
+      adminMemberId: myId,
+      inviteCode: circleId || 'ORBIT-FAMILY',
+      speedLimitAlertThresholdMph: 10,
+      members: {
+        [myId]: {
+          id: myId,
+          name: myName,
+          role: 'Admin',
+          avatar:
+            user?.photoURL ||
+            'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&h=256&q=80',
+          color: '#10b981',
+          battery: myBattery,
+          isCharging,
+          lastUpdated: Date.now(),
+          speedMph: 0,
+          isOnline: true,
+          location: {
+            lat: 37.7749,
+            lng: -122.4194,
+            speed: 0,
+            accuracy: 10,
+            timestamp: Date.now(),
+            placeName: 'Joined Circle',
+          },
+        },
+      },
+      places: [
+        {
+          id: 'place-home',
+          name: 'Home',
+          category: 'home',
+          lat: 37.7749,
+          lng: -122.4194,
+          radiusMeters: 150,
+          address: 'Home Safe Haven',
+          color: '#3b82f6',
+        },
+      ],
+      chat: [
+        {
+          id: 'msg-welcome',
+          memberId: 'system',
+          memberName: 'Family Assistant',
+          memberAvatar:
+            'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=256&h=256&q=80',
+          text: 'KinTrack Family is active. Connect to your Family Server Hub to see other devices in real-time.',
+          timestamp: Date.now(),
+          type: 'text',
+        },
+      ],
+      sosAlerts: [],
+      activeAlarms: {},
+    };
+
+    setActiveMemberId(myId);
+    setCircleData(fallback);
+    localStorage.setItem(`orbit-circle-${circleId}`, JSON.stringify(fallback));
+  }, [activeMemberId, user, circleId, myBattery, isCharging]);
+
   // 1. Resilient Circle Data Fetch & Offline detection with Cache-Busting
   const fetchCircle = useCallback(async (isManual = false) => {
     try {
       if (isManual) setIsSyncing(true);
       // Explicit cache busting with timestamp query param and no-store
-      const res = await fetch(`/api/circle/${circleId}?_t=${Date.now()}`, {
+      const res = await apiFetch(`/api/circle/${circleId}?_t=${Date.now()}`, {
         cache: 'no-store',
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -243,6 +320,7 @@ export default function App() {
       });
 
       if (res.ok) {
+        setIsServerConnected(true);
         const data: CircleData = await res.json();
 
         // 1. Detect if a new member joined circle (e.g. 2nd phone joined)
@@ -360,19 +438,29 @@ export default function App() {
           }
         }
       } else {
+        setIsServerConnected(false);
         const cached = localStorage.getItem(`orbit-circle-${circleId}`);
-        if (cached) setCircleData(JSON.parse(cached));
+        if (cached) {
+          setCircleData(JSON.parse(cached));
+        } else {
+          initFallbackCircle();
+        }
       }
     } catch (err) {
-      console.warn('Backend fetch failed, using cached circle state:', err);
+      console.warn('Backend fetch failed, using cached or fallback circle state:', err);
+      setIsServerConnected(false);
       const cached = localStorage.getItem(`orbit-circle-${circleId}`);
-      if (cached) setCircleData(JSON.parse(cached));
+      if (cached) {
+        setCircleData(JSON.parse(cached));
+      } else {
+        initFallbackCircle();
+      }
     } finally {
       if (isManual) {
         setTimeout(() => setIsSyncing(false), 500);
       }
     }
-  }, [circleId, user, ecoSettings.geofenceVoiceAlerts, addNotification]);
+  }, [circleId, user, ecoSettings.geofenceVoiceAlerts, addNotification, initFallbackCircle]);
 
   const handleManualRefresh = async () => {
     unlockAudioContext();
@@ -387,6 +475,21 @@ export default function App() {
 
     // High frequency 2.5s polling interval ensures all phones stay in 100% sync even if SSE disconnects
     const syncInterval = setInterval(() => fetchCircle(false), 2500);
+
+    // Guaranteed fallback bootstrap so user is NEVER stuck on loading screen
+    const bootTimer = setTimeout(() => {
+      setCircleData((curr) => {
+        if (!curr) {
+          initFallbackCircle();
+        }
+        return curr;
+      });
+    }, 2000);
+
+    const handleServerUrlChange = () => {
+      fetchCircle(true);
+    };
+    window.addEventListener('kintrack_server_url_changed', handleServerUrlChange);
 
     const handleVisChange = () => {
       if (document.visibilityState === 'visible') {
@@ -418,12 +521,14 @@ export default function App() {
 
     return () => {
       clearInterval(syncInterval);
+      clearTimeout(bootTimer);
+      window.removeEventListener('kintrack_server_url_changed', handleServerUrlChange);
       window.removeEventListener('visibilitychange', handleVisChange);
       window.removeEventListener('focus', () => fetchCircle(false));
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [fetchCircle]);
+  }, [fetchCircle, initFallbackCircle]);
 
   // Synchronize theme (dark / light mode) with document and localStorage
   useEffect(() => {
@@ -540,7 +645,7 @@ export default function App() {
       const batteryText = `⚠️ Low Battery Notice: ${memberName}'s phone battery has dropped to ${myBattery}%. Please call or message soon before it powers off.`;
 
       // Post automatic notice to circle chat
-      fetch(`/api/circle/${circleId}/chat`, {
+      apiFetch(`/api/circle/${circleId}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -615,7 +720,7 @@ export default function App() {
       };
 
       // Save to backend
-      fetch(`/api/circle/${circleId}/members`, {
+      apiFetch(`/api/circle/${circleId}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(googleMember),
@@ -648,7 +753,9 @@ export default function App() {
   useEffect(() => {
     let eventSource: EventSource | null = null;
     try {
-      eventSource = new EventSource(`/api/circle/${circleId}/stream`);
+      eventSource = new EventSource(apiUrl(`/api/circle/${circleId}/stream`));
+      eventSource.onopen = () => setIsServerConnected(true);
+      eventSource.onerror = () => setIsServerConnected(false);
 
       eventSource.addEventListener('location_update', (e) => {
         const payload = JSON.parse(e.data);
@@ -873,18 +980,22 @@ export default function App() {
     };
   }, [circleId, ecoSettings.geofenceVoiceAlerts]);
 
-  // 4. Real Physical Device Geolocation (When enabled by user on their phone)
+  // 4. Real Physical Device Geolocation (Native Android Capacitor & Web with high accuracy)
   useEffect(() => {
-    if (!isRealGpsEnabled || !navigator.geolocation || !activeMemberId) return;
+    if (!isRealGpsEnabled || !activeMemberId) return;
 
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const speedMph = pos.coords.speed ? Math.round(pos.coords.speed * 2.23694) : 0;
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        const accuracy = pos.coords.accuracy;
+    let watchRef: string | number | null = null;
+    let isCancelled = false;
 
-        fetch(`/api/circle/${circleId}/member/${activeMemberId}/location`, {
+    startNativeLocationWatcher(
+      (coords) => {
+        if (isCancelled) return;
+        const speedMph = coords.speedMph || 0;
+        const lat = coords.lat;
+        const lng = coords.lng;
+        const accuracy = coords.accuracy || 10;
+
+        apiFetch(`/api/circle/${circleId}/member/${activeMemberId}/location`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -923,16 +1034,20 @@ export default function App() {
           })
           .catch((err) => console.warn('Location post error:', err));
       },
-      (err) => console.warn('Geolocation error:', err),
-      {
-        enableHighAccuracy: ecoSettings.mode === 'high_accuracy',
-        maximumAge: ecoSettings.gpsIntervalSeconds * 1000,
-        timeout: 15000,
+      (err) => console.warn('Geolocation error:', err)
+    ).then((id) => {
+      if (isCancelled) {
+        clearNativeLocationWatcher(id);
+      } else {
+        watchRef = id;
       }
-    );
+    });
 
     return () => {
-      navigator.geolocation.clearWatch(watchId);
+      isCancelled = true;
+      if (watchRef !== null) {
+        clearNativeLocationWatcher(watchRef);
+      }
     };
   }, [isRealGpsEnabled, circleId, activeMemberId, myBattery, isCharging, ecoSettings]);
 
@@ -995,7 +1110,7 @@ export default function App() {
     avatar: string;
   }) => {
     try {
-      const res = await fetch(`/api/circle/${circleId}/members`, {
+      const res = await apiFetch(`/api/circle/${circleId}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(memberData),
@@ -1014,7 +1129,7 @@ export default function App() {
 
   const handleUpdateMember = async (memberId: string, updates: Partial<FamilyMember>) => {
     try {
-      const res = await fetch(`/api/circle/${circleId}/members/${memberId}`, {
+      const res = await apiFetch(`/api/circle/${circleId}/members/${memberId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
@@ -1036,7 +1151,7 @@ export default function App() {
 
   const handleRemoveMember = async (memberId: string) => {
     try {
-      const res = await fetch(`/api/circle/${circleId}/members/${memberId}`, {
+      const res = await apiFetch(`/api/circle/${circleId}/members/${memberId}`, {
         method: 'DELETE',
       });
       if (res.ok) {
@@ -1067,7 +1182,7 @@ export default function App() {
 
   const handleTransferAdmin = async (newAdminMemberId: string) => {
     try {
-      const res = await fetch(`/api/circle/${circleId}/admin`, {
+      const res = await apiFetch(`/api/circle/${circleId}/admin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ newAdminMemberId }),
@@ -1082,7 +1197,7 @@ export default function App() {
 
   const handleClearTestData = async () => {
     try {
-      const res = await fetch(`/api/circle/${circleId}/clear-test-data`, {
+      const res = await apiFetch(`/api/circle/${circleId}/clear-test-data`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keepMemberId: activeMemberId }),
@@ -1099,7 +1214,7 @@ export default function App() {
 
   const handleLoadDemoData = async () => {
     try {
-      const res = await fetch(`/api/circle/${circleId}/seed-demo`, {
+      const res = await apiFetch(`/api/circle/${circleId}/seed-demo`, {
         method: 'POST',
       });
       if (res.ok) {
@@ -1115,7 +1230,7 @@ export default function App() {
   // Remote Alarm Handlers (Find lost or misplaced device)
   const handleTriggerRemoteAlarm = async (targetMemberId: string, targetMemberName: string) => {
     try {
-      const res = await fetch(`/api/circle/${circleId}/remote-alarm`, {
+      const res = await apiFetch(`/api/circle/${circleId}/remote-alarm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1138,7 +1253,7 @@ export default function App() {
 
   const handleSilenceRemoteAlarm = async (targetMemberId: string) => {
     try {
-      const res = await fetch(`/api/circle/${circleId}/remote-alarm`, {
+      const res = await apiFetch(`/api/circle/${circleId}/remote-alarm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1164,7 +1279,7 @@ export default function App() {
 
   const handleRequestLocation = async (targetMemberId: string) => {
     try {
-      await fetch(`/api/circle/${circleId}/request-location`, {
+      await apiFetch(`/api/circle/${circleId}/request-location`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1182,7 +1297,7 @@ export default function App() {
   const handleSendMessage = async (text: string, type: any = 'text', locationData?: any, recipientMemberId?: string) => {
     if (!circleData) return;
     try {
-      await fetch(`/api/circle/${circleId}/chat`, {
+      await apiFetch(`/api/circle/${circleId}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1202,7 +1317,7 @@ export default function App() {
     if (!circleData) return;
     const currentMember = circleData.members[activeMemberId] || Object.values(circleData.members)[0];
     try {
-      await fetch(`/api/circle/${circleId}/sos`, {
+      await apiFetch(`/api/circle/${circleId}/sos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1221,7 +1336,7 @@ export default function App() {
 
   const handleResolveSos = async (alertId: string) => {
     try {
-      await fetch(`/api/circle/${circleId}/sos`, {
+      await apiFetch(`/api/circle/${circleId}/sos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1238,7 +1353,7 @@ export default function App() {
 
   const handleAddPlace = async (place: Partial<SavedPlace>) => {
     try {
-      await fetch(`/api/circle/${circleId}/places`, {
+      await apiFetch(`/api/circle/${circleId}/places`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(place),
@@ -1250,7 +1365,7 @@ export default function App() {
 
   const handleDeletePlace = async (placeId: string) => {
     try {
-      await fetch(`/api/circle/${circleId}/places/${placeId}`, {
+      await apiFetch(`/api/circle/${circleId}/places/${placeId}`, {
         method: 'DELETE',
       });
     } catch (err) {
@@ -1260,7 +1375,7 @@ export default function App() {
 
   const handleImportBackup = async (data: any) => {
     try {
-      const res = await fetch(`/api/circle/${circleId}/import`, {
+      const res = await apiFetch(`/api/circle/${circleId}/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -1303,7 +1418,7 @@ export default function App() {
       },
     };
 
-    fetch(`/api/circle/${targetCode}/members`, {
+    apiFetch(`/api/circle/${targetCode}/members`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(memberObj),
@@ -1349,7 +1464,7 @@ export default function App() {
       },
     };
 
-    fetch('/api/circle/create', {
+    apiFetch('/api/circle/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, member: creatorMember }),
@@ -1378,7 +1493,7 @@ export default function App() {
       phone: phone !== undefined ? phone : targetMember.phone,
     };
 
-    fetch(`/api/circle/${circleId}/members`, {
+    apiFetch(`/api/circle/${circleId}/members`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updatedMember),
@@ -1421,15 +1536,37 @@ export default function App() {
 
   if (!circleData) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-slate-950 text-white font-sans">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center animate-pulse shadow-lg">
-            <Compass className="w-6 h-6 text-white" />
+      <div className="flex h-screen w-screen items-center justify-center bg-slate-950 text-white font-sans p-4">
+        <div className="flex flex-col items-center gap-4 max-w-sm text-center">
+          <div className="w-14 h-14 rounded-2xl bg-indigo-600 flex items-center justify-center animate-pulse shadow-lg shadow-indigo-600/30">
+            <Compass className="w-7 h-7 text-white" />
           </div>
-          <span className="text-sm font-semibold tracking-wide text-slate-300">
-            Connecting to Orbit Family Circle...
-          </span>
+          <div>
+            <h2 className="text-base font-bold text-white tracking-wide">KinTrack Family</h2>
+            <p className="text-xs text-slate-400 mt-1">Connecting to Orbit Family Circle...</p>
+          </div>
+
+          <div className="flex flex-col gap-2 w-full mt-2">
+            <button
+              onClick={() => initFallbackCircle()}
+              className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white transition shadow-md"
+            >
+              Enter Family Circle (Offline / Direct)
+            </button>
+            <button
+              onClick={() => setIsConnectionHubOpen(true)}
+              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition flex items-center justify-center gap-1.5"
+            >
+              <Server className="w-3.5 h-3.5 text-indigo-400" />
+              Configure Hub Server (URL)
+            </button>
+          </div>
         </div>
+        <ConnectionHubModal
+          isOpen={isConnectionHubOpen}
+          onClose={() => setIsConnectionHubOpen(false)}
+          onReconnected={() => fetchCircle(true)}
+        />
       </div>
     );
   }
@@ -1661,6 +1798,27 @@ export default function App() {
               </div>
               <span className="text-[10px] uppercase font-bold text-slate-400 px-1.5 py-0.5 rounded bg-slate-800">
                 {theme}
+              </span>
+            </button>
+
+            {/* Family Server Hub & Multi-Phone Sync */}
+            <button
+              onClick={() => {
+                setIsTopMenuOpen(false);
+                setIsConnectionHubOpen(true);
+              }}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-2xl hover:bg-slate-800 text-slate-200 font-semibold transition text-left"
+            >
+              <div className="flex items-center gap-2.5">
+                <Server className="w-4 h-4 text-emerald-400" />
+                <span>Family Server Hub</span>
+              </div>
+              <span
+                className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                  isServerConnected ? 'bg-emerald-950/80 text-emerald-400' : 'bg-rose-950/80 text-rose-400'
+                }`}
+              >
+                {isServerConnected ? 'Online' : 'Offline'}
               </span>
             </button>
 
@@ -2101,7 +2259,7 @@ export default function App() {
           if (navigator.geolocation && activeMemberId) {
             navigator.geolocation.getCurrentPosition(
               (pos) => {
-                fetch(`/api/circle/${circleId}/member/${activeMemberId}/location`, {
+                apiFetch(`/api/circle/${circleId}/member/${activeMemberId}/location`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -2239,6 +2397,14 @@ export default function App() {
         onOpenGuide={() => setIsGuideOpen(true)}
         onClearTestData={handleClearTestData}
         onLoadDemoData={handleLoadDemoData}
+        onOpenConnectionHub={() => setIsConnectionHubOpen(true)}
+      />
+
+      {/* Family Server Hub & Multi-Phone Connection Modal */}
+      <ConnectionHubModal
+        isOpen={isConnectionHubOpen}
+        onClose={() => setIsConnectionHubOpen(false)}
+        onReconnected={() => fetchCircle(true)}
       />
     </div>
   );

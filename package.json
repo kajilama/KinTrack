@@ -12,6 +12,12 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/device": "^8.0.3",
+    "@capacitor/geolocation": "^8.2.4",
+    "@capacitor/network": "^8.0.1",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
@@ -27,6 +33,7 @@
     "vite": "^8.3.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
     "@types/express": "^4.17.21",
     "@types/leaflet": "^1.9.22",
     "@types/node": "^22.14.0",

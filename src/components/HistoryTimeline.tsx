@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Play, Pause, FastForward, Clock, Gauge, MapPin, Download, X } from 'lucide-react';
 import { FamilyMember, LocationPoint } from '../types';
+import { apiFetch } from '../utils/apiConfig';
 
 interface HistoryTimelineProps {
   member: FamilyMember;
@@ -28,7 +29,7 @@ export const HistoryTimeline: React.FC<HistoryTimelineProps> = ({
   useEffect(() => {
     setIsLoading(true);
     // Fetch from backend
-    fetch(`/api/circle/${circleId}/history/${member.id}?days=30`)
+    apiFetch(`/api/circle/${circleId}/history/${member.id}?days=30`)
       .then((res) => res.json())
       .then((data) => {
         const allPoints: LocationPoint[] = data.points || [];

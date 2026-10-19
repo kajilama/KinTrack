@@ -20,6 +20,7 @@ import {
   Eye,
   LogOut,
   RefreshCw,
+  Server,
 } from 'lucide-react';
 import { EcoSettings, SavedPlace } from '../types';
 import { playGeofenceChime, playSpeedWarningBeep, speakVoiceAlert } from '../utils/audio';
@@ -38,6 +39,7 @@ interface SettingsModalProps {
   onOpenMembers: () => void;
   onOpenUniversalAuth: () => void;
   onOpenGuide: () => void;
+  onOpenConnectionHub?: () => void;
   onClearTestData?: () => void;
   onLoadDemoData?: () => void;
   maxNotifications?: number;
@@ -59,6 +61,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenMembers,
   onOpenUniversalAuth,
   onOpenGuide,
+  onOpenConnectionHub,
   onClearTestData,
   onLoadDemoData,
   maxNotifications = 10,
@@ -557,6 +560,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span>Manage Members</span>
                 </button>
               </div>
+
+              {onOpenConnectionHub && (
+                <div className="pt-2 border-t border-slate-800">
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onOpenConnectionHub();
+                    }}
+                    className="w-full py-2 px-3 rounded-xl bg-indigo-950/70 border border-indigo-500/40 hover:bg-indigo-900/70 text-indigo-200 font-semibold transition flex items-center justify-center gap-1.5 shadow"
+                  >
+                    <Server className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Family Server Hub &amp; Multi-Phone Sync</span>
+                  </button>
+                </div>
+              )}
 
               <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
                 <button

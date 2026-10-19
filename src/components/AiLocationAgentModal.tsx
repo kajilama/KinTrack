@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { FamilyMember, SavedPlace } from '../types';
 import { speakVoiceAlert } from '../utils/audio';
+import { apiFetch } from '../utils/apiConfig';
 
 interface AiLocationAgentModalProps {
   isOpen: boolean;
@@ -132,7 +133,7 @@ export const AiLocationAgentModal: React.FC<AiLocationAgentModalProps> = ({
     setIsLoading(true);
 
     try {
-      const res = await fetch(`/api/circle/${circleId}/ai/assistant`, {
+      const res = await apiFetch(`/api/circle/${circleId}/ai/assistant`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: queryText }),

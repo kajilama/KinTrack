@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { FamilyMember, LocationPoint, SavedPlace } from '../types';
 import { formatTimeAgo, getDistanceMeters } from '../utils/geo';
+import { apiFetch } from '../utils/apiConfig';
 
 interface MemberTrip {
   id: string;
@@ -85,7 +86,7 @@ export const MemberDetailSheet: React.FC<MemberDetailSheetProps> = ({
   // 1. Fetch 30-Day History for this member
   useEffect(() => {
     setIsLoadingHistory(true);
-    fetch(`/api/circle/${circleId}/history/${member.id}?days=30`)
+    apiFetch(`/api/circle/${circleId}/history/${member.id}?days=30`)
       .then((res) => res.json())
       .then((data) => {
         const rawPoints: LocationPoint[] = data.points || [];

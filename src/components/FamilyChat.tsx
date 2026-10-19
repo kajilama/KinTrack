@@ -15,6 +15,7 @@ import {
   BatteryCharging,
 } from 'lucide-react';
 import { ChatMessage, FamilyMember } from '../types';
+import { apiFetch } from '../utils/apiConfig';
 
 interface FamilyChatProps {
   chat: ChatMessage[];
@@ -96,7 +97,7 @@ export const FamilyChat: React.FC<FamilyChatProps> = ({
     // If place name is missing or generic, fetch reverse geocoded street address
     if ((!place || place === 'Current Location' || place === 'Home') && loc && loc.lat && loc.lng) {
       try {
-        const res = await fetch(`/api/reverse-geocode?lat=${loc.lat}&lng=${loc.lng}`);
+        const res = await apiFetch(`/api/reverse-geocode?lat=${loc.lat}&lng=${loc.lng}`);
         if (res.ok) {
           const data = await res.json();
           if (data.address) {

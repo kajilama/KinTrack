@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { FamilyMember, SavedPlace } from '../types';
 import { speakVoiceAlert, unlockAudioContext } from '../utils/audio';
+import { apiFetch } from '../utils/apiConfig';
 
 interface IWindow extends Window {
   webkitSpeechRecognition?: any;
@@ -242,7 +243,7 @@ export const JarvisAiModal: React.FC<JarvisAiModalProps> = ({
     setIsLoading(true);
 
     try {
-      const res = await fetch(`/api/circle/${circleId}/jarvis`, {
+      const res = await apiFetch(`/api/circle/${circleId}/jarvis`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: q }),

@@ -1,4 +1,5 @@
 import { FamilyMember, SavedPlace } from '../types';
+import { apiFetch } from './apiConfig';
 
 export function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371e3; // Earth's radius in meters
@@ -45,7 +46,7 @@ export async function fetchRoadSpeedLimit(
   if (cached) return cached;
 
   try {
-    const res = await fetch(`/api/speed-limit?lat=${lat}&lng=${lng}`);
+    const res = await apiFetch(`/api/speed-limit?lat=${lat}&lng=${lng}`);
     if (res.ok) {
       const data = await res.json();
       const result = {
