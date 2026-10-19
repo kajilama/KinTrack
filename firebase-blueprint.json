@@ -1,0 +1,129 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with Google account information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Auth UID" },
+        "name": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "format": "email", "maxLength": 150 },
+        "avatar": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "email", "createdAt"]
+    },
+    "Circle": {
+      "title": "Circle",
+      "description": "Family circle group",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 80 },
+        "adminUid": { "type": "string" },
+        "inviteCode": { "type": "string", "maxLength": 20 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "adminUid", "inviteCode", "createdAt"]
+    },
+    "Member": {
+      "title": "Member",
+      "description": "Family member location and status within a circle",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "circleId": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string", "maxLength": 80 },
+        "role": { "type": "string", "maxLength": 40 },
+        "avatar": { "type": "string", "maxLength": 500 },
+        "battery": { "type": "number" },
+        "isCharging": { "type": "boolean" },
+        "speedMph": { "type": "number" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "accuracy": { "type": "number" },
+        "placeName": { "type": "string", "maxLength": 100 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "circleId", "name", "lat", "lng"]
+    },
+    "SavedPlace": {
+      "title": "SavedPlace",
+      "description": "Geofenced place within a circle",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "circleId": { "type": "string" },
+        "name": { "type": "string", "maxLength": 80 },
+        "category": { "type": "string", "maxLength": 30 },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "radiusMeters": { "type": "number" },
+        "address": { "type": "string", "maxLength": 200 },
+        "color": { "type": "string", "maxLength": 20 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "circleId", "name", "lat", "lng", "radiusMeters"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Family circle chat message",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "circleId": { "type": "string" },
+        "memberId": { "type": "string" },
+        "memberName": { "type": "string", "maxLength": 80 },
+        "memberAvatar": { "type": "string", "maxLength": 500 },
+        "text": { "type": "string", "maxLength": 1000 },
+        "type": { "type": "string", "maxLength": 20 },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "circleId", "memberId", "text", "timestamp"]
+    },
+    "SosAlert": {
+      "title": "SosAlert",
+      "description": "Emergency SOS broadcast alert",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "circleId": { "type": "string" },
+        "memberId": { "type": "string" },
+        "memberName": { "type": "string", "maxLength": 80 },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "battery": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "resolved"] },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "circleId", "memberId", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profile collection"
+    },
+    "/circles/{circleId}": {
+      "schema": { "$ref": "#/entities/Circle" },
+      "description": "Family circle root collection"
+    },
+    "/circles/{circleId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/Member" },
+      "description": "Members and their live GPS coordinates"
+    },
+    "/circles/{circleId}/places/{placeId}": {
+      "schema": { "$ref": "#/entities/SavedPlace" },
+      "description": "Geofenced places for the circle"
+    },
+    "/circles/{circleId}/chat/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Circle chat messages"
+    },
+    "/circles/{circleId}/sos/{alertId}": {
+      "schema": { "$ref": "#/entities/SosAlert" },
+      "description": "Active and past SOS alerts"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "ORBIT-FAMILY": {
+    "circleId": "ORBIT-FAMILY",
+    "name": "Our Family Circle",
+    "adminMemberId": "",
+    "inviteCode": "ORBIT-FAMILY",
+    "speedLimitAlertThresholdMph": 10,
+    "members": {},
+    "places": [],
+    "chat": [],
+    "sosAlerts": [],
+    "history": {}
+  }
+}

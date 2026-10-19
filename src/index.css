@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/* 100% Free & Open-Source OpenStreetMap Dark Styling (Zero API Key & Zero Watermark) */
+.leaflet-container.dark-theme .leaflet-tile-pane {
+  filter: brightness(0.6) invert(1) contrast(2.5) hue-rotate(200deg) saturate(0.25) brightness(0.7);
+}
+
+.leaflet-container {
+  background-color: #0b1120 !important;
+}
+
+.light-mode .leaflet-container {
+  background-color: #f1f5f9 !important;
+}
+
+/* Fix Leaflet marker popup z-index and smoother rendering */
+.leaflet-pane {
+  z-index: 10 !important;
+}
+
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 15 !important;
+}

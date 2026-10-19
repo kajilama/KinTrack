@@ -1,0 +1,11 @@
+{
+  "name": "KinTrack Family",
+  "description": "Premium real-time family location tracker, geofencing, 30-day history, speed limit voice alerts, member chat, and emergency SOS.",
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
