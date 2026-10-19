@@ -46,9 +46,12 @@ export const EcoStatusBar: React.FC<EcoStatusBarProps> = ({
 
   return (
     <>
-      {/* Auto-Dismissing Banner that disappears after a few seconds */}
+      {/* Auto-Dismissing Banner that disappears after a few seconds - positioned safely below header */}
       {showBanner && (
-        <div className="fixed top-3 inset-x-3 md:left-1/2 md:-translate-x-1/2 md:max-w-md z-50 transition-all duration-500 ease-out animate-in fade-in slide-in-from-top-4">
+        <div
+          style={{ top: 'calc(max(env(safe-area-inset-top, 0px), 16px) + 54px)' }}
+          className="fixed inset-x-3 md:left-1/2 md:-translate-x-1/2 md:max-w-md z-50 transition-all duration-500 ease-out animate-in fade-in slide-in-from-top-4"
+        >
           <div className="bg-slate-900/95 backdrop-blur-md border border-emerald-500/40 text-slate-100 rounded-2xl px-4 py-3 shadow-2xl flex items-center justify-between gap-3 ring-1 ring-emerald-500/20">
             <div className="flex items-center gap-3">
               <div className="relative flex items-center justify-center w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400">

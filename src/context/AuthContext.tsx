@@ -4,6 +4,7 @@ import {
   db,
   googleProvider,
   signInWithPopup,
+  signInAnonymously,
   signOut,
   onAuthStateChanged,
   User,
@@ -30,6 +31,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (!currentUser) {
+        try {
+          await signInAnonymously(auth);
+          return;
+        } catch (anonErr) {
+          console.warn('Anonymous sign-in notice:', anonErr);
+        }
+      }
+
       setUser(currentUser);
       setLoading(false);
 

@@ -69,7 +69,12 @@ export const NotificationCenterDropdown: React.FC<NotificationCenterDropdownProp
   const displayedNotifications = notifications.slice(0, maxNotifications);
 
   return (
-    <div className="absolute top-12 right-12 sm:right-14 w-80 sm:w-96 rounded-3xl bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 text-xs ring-1 ring-white/10 overflow-hidden">
+    <div
+      style={{
+        top: 'calc(max(env(safe-area-inset-top, 0px), 28px) + 44px)',
+      }}
+      className="absolute right-12 sm:right-14 w-80 sm:w-96 rounded-3xl bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 text-xs ring-1 ring-white/10 overflow-hidden"
+    >
       {/* Header */}
       <div className="p-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
         <div className="flex items-center gap-2">

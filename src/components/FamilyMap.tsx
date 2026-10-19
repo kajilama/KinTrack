@@ -320,12 +320,26 @@ export const FamilyMap: React.FC<FamilyMapProps> = ({
     if (!map || !selectedMemberId) return;
 
     const member = members[selectedMemberId];
-    if (member) {
+    if (member && member.location) {
       map.flyTo([member.location.lat, member.location.lng], 15, {
         duration: 1.2,
       });
     }
   }, [selectedMemberId]);
+
+  // Auto-fly to user's real physical coordinates as soon as first GPS fix arrives
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const m = selectedMemberId ? members[selectedMemberId] : Object.values(members)[0];
+    if (m && m.location && (Math.abs(m.location.lat - 37.7749) > 0.001 || Math.abs(m.location.lng - (-122.4194)) > 0.001)) {
+      if (!hasAutoCenteredRef.current) {
+        hasAutoCenteredRef.current = true;
+        map.flyTo([m.location.lat, m.location.lng], 16, { duration: 1.5 });
+      }
+    }
+  }, [members, selectedMemberId]);
 
   // Active SOS alert beacons
   useEffect(() => {

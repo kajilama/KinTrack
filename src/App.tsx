@@ -55,7 +55,22 @@ import {
   startNativeLocationWatcher,
   clearNativeLocationWatcher,
   isNativeApp,
+  requestLocationPermission,
+  getInitialLiveLocation,
+  configureNativeStatusBar,
+  checkLocationPermissionStatus,
 } from './utils/nativeLocation';
+import {
+  subscribeToCircleFirestore,
+  createCircleInFirestore,
+  joinCircleInFirestore,
+  updateMemberLocationInFirestore,
+  sendChatMessageInFirestore,
+  savePlaceInFirestore,
+  deletePlaceInFirestore,
+  setSosInFirestore,
+  setAlarmInFirestore,
+} from './services/firestoreSync';
 import {
   CircleData,
   FamilyMember,
@@ -241,31 +256,50 @@ export default function App() {
 
   // Helper to bootstrap a healthy initial circle when offline or before backend is connected
   const initFallbackCircle = useCallback(() => {
-    const myId = activeMemberId || (user ? `user-${user.uid.slice(0, 8)}` : 'member-admin');
-    const myName = user?.displayName || 'Family Admin';
+    const savedActiveId = localStorage.getItem('orbit_active_member_id');
+    const savedName = localStorage.getItem('orbit_active_member_name');
+    const savedRole = (localStorage.getItem('orbit_active_member_role') as any) || 'Member';
+    const myId = activeMemberId || savedActiveId || (user && !user.isAnonymous ? `user-${user.uid.slice(0, 8)}` : 'member-admin');
+    const myName = savedName || user?.displayName || (myId === 'member-admin' ? 'Family Admin' : 'Family Member');
+    const myRole = savedRole || (myId === 'member-admin' ? 'Admin' : 'Member');
+
+    // Retrieve cached coordinates if user had already allowed GPS
+    let initialLat = 37.7749;
+    let initialLng = -122.4194;
+    try {
+      const savedLoc = localStorage.getItem('orbit_last_location');
+      if (savedLoc) {
+        const parsed = JSON.parse(savedLoc);
+        if (parsed.lat && parsed.lng) {
+          initialLat = parsed.lat;
+          initialLng = parsed.lng;
+        }
+      }
+    } catch {}
+
     const fallback: CircleData = {
       circleId: circleId || 'ORBIT-FAMILY',
       name: 'Orbit Family Circle',
-      adminMemberId: myId,
+      adminMemberId: myId === 'member-admin' ? myId : 'member-admin',
       inviteCode: circleId || 'ORBIT-FAMILY',
       speedLimitAlertThresholdMph: 10,
       members: {
         [myId]: {
           id: myId,
           name: myName,
-          role: 'Admin',
+          role: myRole,
           avatar:
             user?.photoURL ||
             'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&h=256&q=80',
-          color: '#10b981',
+          color: myRole === 'Admin' ? '#3b82f6' : '#10b981',
           battery: myBattery,
           isCharging,
           lastUpdated: Date.now(),
           speedMph: 0,
           isOnline: true,
           location: {
-            lat: 37.7749,
-            lng: -122.4194,
+            lat: initialLat,
+            lng: initialLng,
             speed: 0,
             accuracy: 10,
             timestamp: Date.now(),
@@ -278,10 +312,10 @@ export default function App() {
           id: 'place-home',
           name: 'Home',
           category: 'home',
-          lat: 37.7749,
-          lng: -122.4194,
+          lat: initialLat,
+          lng: initialLng,
           radiusMeters: 150,
-          address: 'Home Safe Haven',
+          address: 'Family Safe Haven',
           color: '#3b82f6',
         },
       ],
@@ -292,7 +326,7 @@ export default function App() {
           memberName: 'Family Assistant',
           memberAvatar:
             'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=256&h=256&q=80',
-          text: 'KinTrack Family is active. Connect to your Family Server Hub to see other devices in real-time.',
+          text: 'KinTrack Family is active. Connect your phones with invite code to track each other live.',
           timestamp: Date.now(),
           type: 'text',
         },
@@ -304,6 +338,33 @@ export default function App() {
     setActiveMemberId(myId);
     setCircleData(fallback);
     localStorage.setItem(`orbit-circle-${circleId}`, JSON.stringify(fallback));
+
+    // Request immediate live GPS fix
+    getInitialLiveLocation().then((loc) => {
+      if (loc) {
+        setCircleData((prev) => {
+          if (!prev || !prev.members[myId]) return prev;
+          const cur = prev.members[myId];
+          return {
+            ...prev,
+            members: {
+              ...prev.members,
+              [myId]: {
+                ...cur,
+                location: {
+                  ...cur.location,
+                  lat: loc.lat,
+                  lng: loc.lng,
+                  speed: loc.speedMph,
+                  accuracy: loc.accuracy,
+                  timestamp: Date.now(),
+                },
+              },
+            },
+          };
+        });
+      }
+    });
   }, [activeMemberId, user, circleId, myBattery, isCharging]);
 
   // 1. Resilient Circle Data Fetch & Offline detection with Cache-Busting
@@ -420,17 +481,17 @@ export default function App() {
         setCircleData(data);
         localStorage.setItem(`orbit-circle-${circleId}`, JSON.stringify(data));
 
-        // Establish active member identity for current device (WITHOUT forcing selectedMemberId open!)
+        // Establish active member identity for current device (preserves joined member identity)
         const memberIds = Object.keys(data.members || {});
         const savedActiveId = localStorage.getItem('orbit_active_member_id');
-        if (savedActiveId && data.members[savedActiveId]) {
+        if (savedActiveId) {
           setActiveMemberId(savedActiveId);
-        } else if (user) {
+        } else if (user && !user.isAnonymous) {
           const googleMemberId = `user-${user.uid.slice(0, 8)}`;
           if (data.members[googleMemberId]) {
             setActiveMemberId(googleMemberId);
           }
-        } else if (localStorage.getItem('orbit_onboarding_completed') === 'true') {
+        } else if (!activeMemberId) {
           if (data.adminMemberId && data.members[data.adminMemberId]) {
             setActiveMemberId(data.adminMemberId);
           } else if (memberIds.length > 0) {
@@ -529,6 +590,89 @@ export default function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, [fetchCircle, initFallbackCircle]);
+
+  // 1. Configure Android system status bar on mount (ensures it never covers phone top bar)
+  useEffect(() => {
+    configureNativeStatusBar();
+  }, []);
+
+  // 2. Real-time Cloud Firestore subscription for 100% instant sync across devices
+  useEffect(() => {
+    if (!circleId) return;
+
+    const unsubscribe = subscribeToCircleFirestore(circleId, {
+      onCircleUpdate: (partial) => {
+        setIsServerConnected(true);
+        setCircleData((prev) => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            ...partial,
+            members: {
+              ...prev.members,
+              ...(partial.members || {}),
+            },
+            places: partial.places || prev.places,
+            chat: partial.chat || prev.chat,
+            sosAlerts: partial.sosAlerts || prev.sosAlerts,
+            activeAlarms: partial.activeAlarms || prev.activeAlarms,
+          };
+        });
+      },
+    });
+
+    return () => unsubscribe();
+  }, [circleId]);
+
+  // 3. Proactive boot location permissions request & immediate physical GPS fix
+  useEffect(() => {
+    requestLocationPermission().then((granted) => {
+      if (granted) {
+        getInitialLiveLocation().then((loc) => {
+          if (loc) {
+            try {
+              localStorage.setItem('orbit_last_location', JSON.stringify(loc));
+            } catch {}
+
+            const mId = activeMemberIdRef.current;
+            if (mId) {
+              setCircleData((prev) => {
+                if (!prev || !prev.members[mId]) return prev;
+                const cur = prev.members[mId];
+                return {
+                  ...prev,
+                  members: {
+                    ...prev.members,
+                    [mId]: {
+                      ...cur,
+                      location: {
+                        ...cur.location,
+                        lat: loc.lat,
+                        lng: loc.lng,
+                        speed: loc.speedMph,
+                        accuracy: loc.accuracy,
+                        timestamp: Date.now(),
+                      },
+                    },
+                  },
+                };
+              });
+
+              updateMemberLocationInFirestore(circleId, mId, {
+                location: {
+                  lat: loc.lat,
+                  lng: loc.lng,
+                  speed: loc.speedMph,
+                  accuracy: loc.accuracy,
+                  timestamp: Date.now(),
+                },
+              }).catch(() => {});
+            }
+          }
+        });
+      }
+    });
+  }, [circleId]);
 
   // Synchronize theme (dark / light mode) with document and localStorage
   useEffect(() => {
@@ -995,6 +1139,55 @@ export default function App() {
         const lng = coords.lng;
         const accuracy = coords.accuracy || 10;
 
+        // 1. Immediately update local React state with zero latency
+        setCircleData((prev) => {
+          if (!prev || !prev.members[activeMemberId]) return prev;
+          const currentM = prev.members[activeMemberId];
+          return {
+            ...prev,
+            members: {
+              ...prev.members,
+              [activeMemberId]: {
+                ...currentM,
+                battery: myBattery,
+                isCharging,
+                speedMph,
+                lastUpdated: Date.now(),
+                isOnline: true,
+                location: {
+                  ...currentM.location,
+                  lat,
+                  lng,
+                  speed: speedMph,
+                  accuracy,
+                  timestamp: Date.now(),
+                },
+              },
+            },
+          };
+        });
+
+        // 2. Cache coordinates locally
+        try {
+          localStorage.setItem('orbit_last_location', JSON.stringify({ lat, lng, speedMph, accuracy }));
+        } catch {}
+
+        // 3. Real-time push to Cloud Firestore so all family phones see it instantly
+        updateMemberLocationInFirestore(circleId, activeMemberId, {
+          battery: myBattery,
+          isCharging,
+          speedMph,
+          isOnline: true,
+          location: {
+            lat,
+            lng,
+            speed: speedMph,
+            accuracy,
+            timestamp: Date.now(),
+          },
+        }).catch((e) => console.warn('Firestore location sync notice:', e));
+
+        // 4. Also post to backend API
         apiFetch(`/api/circle/${circleId}/member/${activeMemberId}/location`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1294,8 +1487,31 @@ export default function App() {
   };
 
   // Chat, SOS, Places handlers
+  // Chat, SOS, Places handlers with real-time Cloud Firestore & backend sync
   const handleSendMessage = async (text: string, type: any = 'text', locationData?: any, recipientMemberId?: string) => {
     if (!circleData) return;
+    const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const currentMember = circleData.members[activeMemberId] || activeMember;
+    const chatMsg: ChatMessage = {
+      id: msgId,
+      memberId: activeMemberId,
+      memberName: currentMember?.name || 'Family Member',
+      memberAvatar: currentMember?.avatar,
+      text,
+      timestamp: Date.now(),
+      type,
+      locationData,
+      recipientMemberId,
+    };
+
+    // Update local state immediately
+    setCircleData((prev) => (prev ? { ...prev, chat: [...(prev.chat || []), chatMsg] } : prev));
+
+    // Sync to Firestore for instant delivery across all devices
+    sendChatMessageInFirestore(circleId, chatMsg).catch((e) =>
+      console.warn('Firestore chat sync notice:', e)
+    );
+
     try {
       await apiFetch(`/api/circle/${circleId}/chat`, {
         method: 'POST',
@@ -1309,13 +1525,31 @@ export default function App() {
         }),
       });
     } catch (err) {
-      console.warn('Send chat error:', err);
+      console.warn('Send chat API error:', err);
     }
   };
 
   const handleTriggerSos = async () => {
     if (!circleData) return;
     const currentMember = circleData.members[activeMemberId] || Object.values(circleData.members)[0];
+    const alertId = `sos-${Date.now()}`;
+    const newAlert: SosAlert = {
+      id: alertId,
+      memberId: activeMemberId,
+      memberName: currentMember?.name || 'Family Member',
+      memberAvatar: currentMember?.avatar,
+      timestamp: Date.now(),
+      status: 'active',
+      lat: currentMember?.location?.lat || 0,
+      lng: currentMember?.location?.lng || 0,
+      battery: currentMember?.battery || myBattery,
+      address: currentMember?.location?.address || 'Current Location',
+    };
+
+    setCircleData((prev) => (prev ? { ...prev, sosAlerts: [newAlert, ...(prev.sosAlerts || [])] } : prev));
+    setIsSosModalOpen(true);
+
+    setSosInFirestore(circleId, newAlert).catch(() => {});
     try {
       await apiFetch(`/api/circle/${circleId}/sos`, {
         method: 'POST',
@@ -1328,13 +1562,25 @@ export default function App() {
           address: currentMember?.location?.address,
         }),
       });
-      setIsSosModalOpen(true);
     } catch (err) {
       console.warn('SOS trigger error:', err);
     }
   };
 
   const handleResolveSos = async (alertId: string) => {
+    setCircleData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        sosAlerts: prev.sosAlerts.map((a) => (a.id === alertId ? { ...a, status: 'resolved' } : a)),
+      };
+    });
+    setIsSosModalOpen(false);
+
+    const existing = circleData?.sosAlerts.find((a) => a.id === alertId);
+    if (existing) {
+      setSosInFirestore(circleId, { ...existing, status: 'resolved' }).catch(() => {});
+    }
     try {
       await apiFetch(`/api/circle/${circleId}/sos`, {
         method: 'POST',
@@ -1345,18 +1591,33 @@ export default function App() {
           alertId,
         }),
       });
-      setIsSosModalOpen(false);
     } catch (err) {
       console.warn('SOS resolve error:', err);
     }
   };
 
   const handleAddPlace = async (place: Partial<SavedPlace>) => {
+    const newPlace: SavedPlace = {
+      id: place.id || `place-${Date.now()}`,
+      name: place.name || 'Saved Place',
+      category: place.category || 'other',
+      lat: place.lat || 37.7749,
+      lng: place.lng || -122.4194,
+      radiusMeters: place.radiusMeters || 150,
+      address: place.address || '',
+      color: place.color || '#3b82f6',
+    };
+
+    setCircleData((prev) =>
+      prev ? { ...prev, places: [...prev.places.filter((p) => p.id !== newPlace.id), newPlace] } : prev
+    );
+    savePlaceInFirestore(circleId, newPlace).catch(() => {});
+
     try {
       await apiFetch(`/api/circle/${circleId}/places`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(place),
+        body: JSON.stringify(newPlace),
       });
     } catch (err) {
       console.warn('Add place error:', err);
@@ -1364,6 +1625,9 @@ export default function App() {
   };
 
   const handleDeletePlace = async (placeId: string) => {
+    setCircleData((prev) => (prev ? { ...prev, places: prev.places.filter((p) => p.id !== placeId) } : prev));
+    deletePlaceInFirestore(circleId, placeId).catch(() => {});
+
     try {
       await apiFetch(`/api/circle/${circleId}/places/${placeId}`, {
         method: 'DELETE',
@@ -1388,16 +1652,43 @@ export default function App() {
     }
   };
 
-  const handleJoinCircle = (code: string, role: string, userName?: string, phone?: string) => {
+  const handleJoinCircle = async (code: string, role: string, userName?: string, phone?: string) => {
     const targetCode = code.trim().toUpperCase();
     setCircleId(targetCode);
     localStorage.setItem('orbit_active_circle_id', targetCode);
 
-    const userMemberId = user ? `user-${user.uid.slice(0, 8)}` : `member-${Date.now().toString().slice(-4)}`;
+    // Get live physical coordinates immediately
+    const liveLoc = await getInitialLiveLocation();
+    let initialLat = liveLoc?.lat || 37.7749;
+    let initialLng = liveLoc?.lng || -122.4194;
+    try {
+      const savedLoc = localStorage.getItem('orbit_last_location');
+      if (savedLoc && (!liveLoc || !liveLoc.lat)) {
+        const parsed = JSON.parse(savedLoc);
+        if (parsed.lat && parsed.lng) {
+          initialLat = parsed.lat;
+          initialLng = parsed.lng;
+        }
+      }
+    } catch {}
+
+    const userMemberId =
+      user && !user.isAnonymous
+        ? `user-${user.uid.slice(0, 8)}`
+        : localStorage.getItem('orbit_active_member_id') || `member-${Date.now().toString().slice(-4)}`;
+
+    const finalName = userName || user?.displayName || 'Family Member';
+    const finalRole = (role as FamilyRole) || 'Member';
+
+    // Persist this device's identity to prevent resetting to admin!
+    localStorage.setItem('orbit_active_member_id', userMemberId);
+    localStorage.setItem('orbit_active_member_name', finalName);
+    localStorage.setItem('orbit_active_member_role', finalRole);
+
     const memberObj: FamilyMember = {
       id: userMemberId,
-      name: userName || user?.displayName || 'Family Member',
-      role: (role as any) || 'Member',
+      name: finalName,
+      role: finalRole,
       phone: phone || undefined,
       avatar:
         user?.photoURL ||
@@ -1406,18 +1697,52 @@ export default function App() {
       battery: myBattery,
       isCharging,
       lastUpdated: Date.now(),
-      speedMph: 0,
+      speedMph: liveLoc?.speedMph || 0,
       isOnline: true,
       location: {
-        lat: 37.7749,
-        lng: -122.4194,
-        speed: 0,
-        accuracy: 5,
+        lat: initialLat,
+        lng: initialLng,
+        speed: liveLoc?.speedMph || 0,
+        accuracy: liveLoc?.accuracy || 5,
         timestamp: Date.now(),
         placeName: 'Joined Circle',
       },
     };
 
+    setActiveMemberId(userMemberId);
+    setSelectedMemberId(userMemberId);
+    setIsSimulatorActive(false);
+
+    // 1. Immediately show member in local React state
+    setCircleData((prev) => {
+      const base = prev || {
+        circleId: targetCode,
+        name: 'Orbit Family Circle',
+        adminMemberId: 'member-admin',
+        inviteCode: targetCode,
+        speedLimitAlertThresholdMph: 10,
+        members: {},
+        places: [],
+        chat: [],
+        sosAlerts: [],
+        activeAlarms: {},
+      };
+      return {
+        ...base,
+        circleId: targetCode,
+        members: {
+          ...base.members,
+          [userMemberId]: memberObj,
+        },
+      };
+    });
+
+    // 2. Direct real-time Sync to Cloud Firestore
+    joinCircleInFirestore(targetCode, memberObj).catch((e) =>
+      console.warn('Firestore join notice:', e)
+    );
+
+    // 3. Fallback to API if available
     apiFetch(`/api/circle/${targetCode}/members`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1429,20 +1754,38 @@ export default function App() {
           setCircleData((prev) => (prev ? { ...prev, members: data.members } : prev));
         }
       })
-      .catch((err) => console.warn('Could not post joined member:', err));
-
-    setActiveMemberId(userMemberId);
-    setSelectedMemberId(userMemberId);
-    setIsSimulatorActive(false);
+      .catch((err) => console.warn('Could not post joined member to API:', err));
   };
 
-  const handleCreateCircle = (name: string, adminName?: string, phone?: string) => {
+  const handleCreateCircle = async (name: string, adminName?: string, phone?: string) => {
     const newCode = `ORBIT-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-    const userMemberId = user ? `user-${user.uid.slice(0, 8)}` : 'member-admin';
+    const liveLoc = await getInitialLiveLocation();
+    let initialLat = liveLoc?.lat || 37.7749;
+    let initialLng = liveLoc?.lng || -122.4194;
+    try {
+      const savedLoc = localStorage.getItem('orbit_last_location');
+      if (savedLoc && (!liveLoc || !liveLoc.lat)) {
+        const parsed = JSON.parse(savedLoc);
+        if (parsed.lat && parsed.lng) {
+          initialLat = parsed.lat;
+          initialLng = parsed.lng;
+        }
+      }
+    } catch {}
+
+    const userMemberId =
+      user && !user.isAnonymous ? `user-${user.uid.slice(0, 8)}` : 'member-admin';
+
+    const finalAdminName = adminName || user?.displayName || 'Family Admin';
+
+    localStorage.setItem('orbit_active_circle_id', newCode);
+    localStorage.setItem('orbit_active_member_id', userMemberId);
+    localStorage.setItem('orbit_active_member_name', finalAdminName);
+    localStorage.setItem('orbit_active_member_role', 'Admin');
 
     const creatorMember: FamilyMember = {
       id: userMemberId,
-      name: adminName || user?.displayName || 'Family Admin',
+      name: finalAdminName,
       role: 'Admin',
       phone: phone || undefined,
       avatar:
@@ -1452,18 +1795,69 @@ export default function App() {
       battery: myBattery,
       isCharging,
       lastUpdated: Date.now(),
-      speedMph: 0,
+      speedMph: liveLoc?.speedMph || 0,
       isOnline: true,
       location: {
-        lat: 37.7749,
-        lng: -122.4194,
-        speed: 0,
-        accuracy: 5,
+        lat: initialLat,
+        lng: initialLng,
+        speed: liveLoc?.speedMph || 0,
+        accuracy: liveLoc?.accuracy || 5,
         timestamp: Date.now(),
         placeName: 'Circle Created',
       },
     };
 
+    setCircleId(newCode);
+    setActiveMemberId(userMemberId);
+    setSelectedMemberId(userMemberId);
+    setIsSimulatorActive(false);
+
+    const newCircleData: CircleData = {
+      circleId: newCode,
+      name,
+      adminMemberId: userMemberId,
+      inviteCode: newCode,
+      speedLimitAlertThresholdMph: 10,
+      members: {
+        [userMemberId]: creatorMember,
+      },
+      places: [
+        {
+          id: 'place-home',
+          name: 'Home',
+          category: 'home',
+          lat: initialLat,
+          lng: initialLng,
+          radiusMeters: 150,
+          address: 'Family Home Safe Haven',
+          color: '#3b82f6',
+        },
+      ],
+      chat: [
+        {
+          id: `msg-${Date.now()}`,
+          memberId: 'system',
+          memberName: 'KinTrack Hub',
+          memberAvatar:
+            'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=256&h=256&q=80',
+          text: `Welcome to ${name}! Share invite code ${newCode} with family members to track each other live.`,
+          timestamp: Date.now(),
+          type: 'text',
+        },
+      ],
+      sosAlerts: [],
+      activeAlarms: {},
+    };
+
+    setCircleData(newCircleData);
+    localStorage.setItem(`orbit-circle-${newCode}`, JSON.stringify(newCircleData));
+
+    // Direct create in Cloud Firestore
+    createCircleInFirestore(newCode, name, creatorMember).catch((e) =>
+      console.warn('Firestore create notice:', e)
+    );
+
+    // Call backend API
     apiFetch('/api/circle/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1474,13 +1868,9 @@ export default function App() {
         if (data.circle) {
           setCircleId(data.circle.circleId);
           setCircleData(data.circle);
-          localStorage.setItem('orbit_active_circle_id', data.circle.circleId);
-          setActiveMemberId(userMemberId);
-          setSelectedMemberId(userMemberId);
-          setIsSimulatorActive(false);
         }
       })
-      .catch((err) => console.warn('Failed to create circle on backend:', err));
+      .catch((err) => console.warn('Failed to create circle on backend API:', err));
   };
 
   const handleUpdateProfileName = (name: string, role: string, phone?: string) => {
@@ -1616,9 +2006,12 @@ export default function App() {
         gpsActive={isRealGpsEnabled || isSimulatorActive}
       />
 
-      {/* Top Application Header Bar */}
+      {/* Top Application Header Bar - safely positioned below device system status bar */}
       <header
-        className={`absolute top-0 inset-x-0 z-40 flex items-center justify-between px-3 md:px-5 py-2.5 ${
+        style={{
+          paddingTop: 'calc(max(env(safe-area-inset-top, 0px), 16px) + 6px)',
+        }}
+        className={`relative z-40 flex items-center justify-between px-3 md:px-5 pb-2.5 shrink-0 ${
           theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-950/90 border-slate-800/80'
         } backdrop-blur-md border-b`}
       >
@@ -1952,7 +2345,7 @@ export default function App() {
         )}
 
       {/* Main Interactive Map View */}
-      <main className="relative flex-1 w-full h-full pt-12 pb-16">
+      <main className="relative flex-1 w-full h-full pb-16 min-h-0">
         <FamilyMap
           members={circleData.members}
           places={circleData.places}

@@ -18,6 +18,11 @@ const config: CapacitorConfig = {
   },
   plugins: {
     Geolocation: {},
+    StatusBar: {
+      overlaysWebView: false,
+      style: 'DARK',
+      backgroundColor: '#0b1120',
+    },
   },
   android: {
     allowMixedContent: true,

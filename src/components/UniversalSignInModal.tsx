@@ -17,6 +17,7 @@ import {
   LogIn,
 } from 'lucide-react';
 import { FamilyRole } from '../types';
+import { requestLocationPermission } from '../utils/nativeLocation';
 
 interface UniversalSignInModalProps {
   isOpen: boolean;
@@ -93,6 +94,9 @@ export const UniversalSignInModal: React.FC<UniversalSignInModalProps> = ({
       onUpdateProfileName(finalName, profileRole, profilePhone.trim() || undefined);
     }
 
+    // Proactively request location permission so GPS dialog pops up for user
+    requestLocationPermission().catch(() => {});
+
     setStep('circle_choice');
   };
 
@@ -111,6 +115,7 @@ export const UniversalSignInModal: React.FC<UniversalSignInModalProps> = ({
         if (onUpdateProfileName) {
           onUpdateProfileName(gName, profileRole, profilePhone.trim() || undefined);
         }
+        requestLocationPermission().catch(() => {});
         setStep('circle_choice');
       }
     } catch (err) {
@@ -127,7 +132,9 @@ export const UniversalSignInModal: React.FC<UniversalSignInModalProps> = ({
     const finalName = profileName.trim() || 'Family Member';
     localStorage.setItem('orbit_onboarding_completed', 'true');
     localStorage.setItem('orbit_active_member_name', finalName);
+    localStorage.setItem('orbit_active_member_role', profileRole);
 
+    requestLocationPermission().catch(() => {});
     onJoinCircle(code, profileRole, finalName, profilePhone.trim() || undefined);
     onClose();
   };
@@ -139,7 +146,9 @@ export const UniversalSignInModal: React.FC<UniversalSignInModalProps> = ({
     const finalName = profileName.trim() || 'Family Admin';
     localStorage.setItem('orbit_onboarding_completed', 'true');
     localStorage.setItem('orbit_active_member_name', finalName);
+    localStorage.setItem('orbit_active_member_role', 'Admin');
 
+    requestLocationPermission().catch(() => {});
     onCreateCircle(finalCircleName, finalName, profilePhone.trim() || undefined);
     onClose();
   };

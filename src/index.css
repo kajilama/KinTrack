@@ -22,3 +22,18 @@
 .leaflet-bottom {
   z-index: 15 !important;
 }
+
+/* Safe-area insets for modern Android (notches, punch holes, status bar) and iOS */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-top-padding {
+  padding-top: max(env(safe-area-inset-top, 0px), 28px) !important;
+}
+
+.safe-top-top {
+  top: max(env(safe-area-inset-top, 0px), 28px) !important;
+}
+

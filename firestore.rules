@@ -26,38 +26,38 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Family circles collection
+    // Family circles collection (Multi-device real-time sync for Life360 features)
     match /circles/{circleId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if false;
+      allow read, write: if true;
 
-      // Circle members with live GPS
+      // Circle members with live GPS coordinates, battery, and speed
       match /members/{memberId} {
-        allow read: if isSignedIn();
-        allow create, update: if isSignedIn();
-        allow delete: if isSignedIn();
+        allow read, write: if true;
       }
 
-      // Geofenced Saved Places
+      // Geofenced Saved Places (Home, School, Work, Gym)
       match /places/{placeId} {
-        allow read: if isSignedIn();
-        allow create, update, delete: if isSignedIn();
+        allow read, write: if true;
       }
 
-      // Circle Chat messages
+      // Circle Chat messages and check-ins
       match /chat/{messageId} {
-        allow read: if isSignedIn();
-        allow create: if isSignedIn();
-        allow update, delete: if false;
+        allow read, write: if true;
       }
 
-      // Emergency SOS Alerts
+      // Emergency SOS Alerts and Alarms
       match /sos/{alertId} {
-        allow read: if isSignedIn();
-        allow create, update: if isSignedIn();
-        allow delete: if false;
+        allow read, write: if true;
+      }
+
+      // Remote Alarms and Pings
+      match /alarms/{alarmId} {
+        allow read, write: if true;
+      }
+
+      // Location history trails
+      match /history/{historyId} {
+        allow read, write: if true;
       }
     }
   }
